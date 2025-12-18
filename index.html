@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Risk</title>
+  <script src="/_sdk/element_sdk.js"></script>
+  <style>
+    body {
+      box-sizing: border-box;
+      font-family: system-ui, sans-serif;
+      background: #111;
+      color: #fff;
+      margin: 0;
+      padding: 20px;
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 { margin: 0 0 10px; font-size: 1.2rem; }
+    .info { margin-bottom: 10px; font-size: 0.9rem; }
+    .grid { display: grid; grid-template-columns: repeat(5, 52px); gap: 3px; }
+    .cell {
+      width: 52px; height: 52px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem; font-weight: bold;
+      cursor: pointer; background: #3a3a3a; border: 3px solid #222;
+    }
+    .cell.n2 { background: #484848; }
+    .cell.n3 { background: #565656; }
+    .cell.n4 { background: #646464; }
+    .cell.red { background: #b22; }
+    .cell.blue { background: #27a; }
+    .cell.sel { border-color: #fe0; }
+    .cell.tgt { border-color: #0d0; border-style: dashed; }
+    .btns { margin-top: 12px; display: flex; gap: 8px; }
+    button {
+      padding: 8px 16px; font-size: 0.85rem; cursor: pointer;
+      background: #333; color: #fff; border: none;
+    }
+    button:hover { background: #555; }
+    .stats { margin-top: 12px; font-size: 0.75rem; color: #999; text-align: center; }
+    .modal {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+      display: none; align-items: center; justify-content: center;
+    }
+    .modal.show { display: flex; }
+    .mbox { background: #1a1a1a; padding: 24px; text-align: center; }
+  </style>
+  <style>@view-transition { navigation: auto; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+  <script src="https://cdn.tailwindcss.com" type="text/javascript"></script>
+ </head>
+ <body>
+  <h1>MINI RISK</h1>
+  <div class="info"><span id="turn">🔴 Red's Turn</span> · Turn <span id="tn">1</span>
+  </div>
+  <div id="grid" class="grid"></div>
+  <div class="btns"><button id="end">End Turn</button> <button id="new">New</button>
+  </div>
+  <div class="stats">
+   🔴 <span id="rt">1</span> tiles · 🔵 <span id="bt">1</span> tiles<br>
+    Select → Attack ↑↓←→
+  </div>
+  <div id="modal" class="modal">
+   <div class="mbox">
+    <h2 id="win">Winner!</h2><button id="retry" style="margin-top:12px;">Play Again</button>
+   </div>
+  </div>
+  <script>
+    const S = 5;
+    let grid, player, turnNum, selected;
+
+    const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+
+    const isAdj = (a, b) => {
+      const ar = Math.floor(a / S), ac = a % S;
+      const br = Math.floor(b / S), bc = b % S;
+      return (Math.abs(ar - br) === 1 && ac === bc) || (Math.abs(ac - bc) === 1 && ar === br);
+    };
+
+    const count = (o) => grid.filter(c => c.o === o).length;
+
+    const init = () => {
+      grid = [];
+      for (let i = 0; i < S * S; i++) {
+        grid[i] = { o: 0, t: rand(1, 4) };
+      }
+      grid[S * (S - 1)] = { o: 1, t: 5 };  // Red: 5 troops
+      grid[S - 1] = { o: 2, t: 6 };        // Blue: 6 troops (compensation for going second)
+      player = 1;
+      turnNum = 1;
+      selected = null;
+      document.getElementById('modal').classList.remove('show');
+      render();
+    };
+
+    const render = () => {
+      const el = document.getElementById('grid');
+      el.innerHTML = '';
+
+      for (let i = 0; i < S * S; i++) {
+        const c = document.createElement('div');
+        c.className = 'cell';
+        const d = grid[i];
+
+        if (d.o === 1) c.classList.add('red');
+        else if (d.o === 2) c.classList.add('blue');
+        else if (d.t >= 4) c.classList.add('n4');
+        else if (d.t >= 3) c.classList.add('n3');
+        else if (d.t >= 2) c.classList.add('n2');
+
+        if (selected === i) c.classList.add('sel');
+        if (selected !== null && isAdj(i, selected) && d.o !== player) c.classList.add('tgt');
+
+        c.textContent = d.t;
+        c.onclick = () => click(i);
+        el.appendChild(c);
+      }
+
+      document.getElementById('turn').textContent = player === 1 ? "🔴 Red's Turn" : "🔵 Blue's Turn";
+      document.getElementById('tn').textContent = turnNum;
+      document.getElementById('rt').textContent = count(1);
+      document.getElementById('bt').textContent = count(2);
+    };
+
+    const click = (i) => {
+      const tgt = grid[i];
+
+      // Attack
+      if (selected !== null && isAdj(i, selected) && tgt.o !== player) {
+        const src = grid[selected];
+        if (src.t > 1) {
+          const atk = src.t - 1, def = tgt.t;
+          if (atk > def) grid[i] = { o: player, t: atk - def };
+          else if (atk === def) grid[i] = { o: player, t: 1 };
+          else tgt.t = def - atk;
+          src.t = 1;
+          selected = null;
+          render();
+          checkWin();
+          return;
+        }
+      }
+
+      // Select
+      selected = (tgt.o === player && tgt.t > 1) ? i : null;
+      render();
+    };
+
+    const endTurn = () => {
+      const owned = [];
+      for (let i = 0; i < S * S; i++) if (grid[i].o === player) owned.push(i);
+      const bonus = Math.max(1, owned.length);
+      for (let j = 0; j < bonus; j++) {
+        grid[owned[rand(0, owned.length - 1)]].t++;
+      }
+      player = player === 1 ? 2 : 1;
+      if (player === 1) turnNum++;
+      selected = null;
+      render();
+    };
+
+    const checkWin = () => {
+      const r = grid.some(c => c.o === 1), b = grid.some(c => c.o === 2);
+      if (!r || !b) {
+        document.getElementById('win').textContent = !r ? '🔵 Blue Wins!' : '🔴 Red Wins!';
+        document.getElementById('modal').classList.add('show');
+      }
+    };
+
+    document.getElementById('end').onclick = endTurn;
+    document.getElementById('new').onclick = init;
+    document.getElementById('retry').onclick = init;
+
+    const defaultConfig = {};
+    if (window.elementSdk) {
+      window.elementSdk.init({
+        defaultConfig,
+        onConfigChange: async () => {},
+        mapToCapabilities: () => ({ recolorables: [], borderables: [], fontEditable: undefined, fontSizeable: undefined }),
+        mapToEditPanelValues: () => new Map()
+      });
+    }
+
+    init();
+  </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9afd822cb1f75c24',t:'MTc2NjA0ODgzMS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
